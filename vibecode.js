@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * nanocode - minimal claude code alternative
+ * vibecode - minimal claude code alternative
  */
 
 const fs = require('fs');
@@ -284,7 +284,7 @@ function renderMarkdown(text) {
 }
 
 async function main() {
-    console.log(`${BOLD}nanocode${RESET} | ${DIM}${MODEL} | ${process.cwd()}${RESET}\n`);
+    console.log(`${BOLD}vibecode${RESET} | ${DIM}${MODEL} | ${process.cwd()}${RESET}\n`);
     
     const messages = [];
     const systemPrompt = `Concise coding assistant. cwd: ${process.cwd()}`;
