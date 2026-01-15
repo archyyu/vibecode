@@ -94,6 +94,11 @@ function glob(args) {
     return results.map(r => r.path).join('\n') || "none";
 }
 
+function diff(args) {
+    const target = args.path || '';
+    return bash({ cmd: `git diff ${target}` });
+}
+
 function grep(args) {
     const pattern = new RegExp(args.pat);
     const basePath = args.path || '.';
@@ -192,6 +197,11 @@ const TOOLS = {
         description: "Run shell command",
         schema: { cmd: "string" },
         fn: bash
+    },
+    diff: {
+        description: "Show diff of file",
+        schema: { path: "string" },
+        fn: diff
     }
 };
 
