@@ -275,58 +275,61 @@ function makeSchema() {
     });
 }
 
-function callApi(messages, systemPrompt) {
-    return new Promise((resolve, reject) => {
-        if (!process.env.MISTRAL_API_KEY) {
-            reject(new Error("MISTRAL_API_KEY is not set in environment"));
-            return;
-        }
+async function* callApi(messages, systemPrompt) {
+    if (!process.env.MISTRAL_API_KEY) {
+        throw new Error("MISTRAL_API_KEY is not set in environment");
+    }
 
-        const mistralMessages = [
-            { role: "system", content: systemPrompt },
-            ...messages
-        ];
-        
-        const data = JSON.stringify({
-            model: MODEL,
-            max_tokens: 8192,
-            messages: mistralMessages,
-            tools: makeSchema(),
-            tool_choice: "auto"
-        });
-        
-        const options = {
-            hostname: 'api.mistral.ai',
-            path: '/v1/chat/completions',
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${process.env.MISTRAL_API_KEY}`,
-                'Content-Length': Buffer.byteLength(data)
-            }
-        };
-        
-        const req = https.request(options, (res) => {
-            let body = '';
-            res.on('data', chunk => body += chunk);
-            res.on('end', () => {
-                try {
-                    const parsed = JSON.parse(body);
-                    if (res.statusCode !== 200) {
-                        reject(new Error(`Mistral API Error ${res.statusCode}: ${parsed.message || JSON.stringify(parsed)}`));
-                    } else {
-                        resolve(parsed);
-                    }
-                } catch (e) {
-                    reject(new Error(`Failed to parse response: ${body.slice(0, 100)}...`));
-                }
-            });
-        });
-        
+    const mistralMessages = [
+        { role: "system", content: systemPrompt },
+        ...messages
+    ];
+    
+    const data = JSON.stringify({
+        model: MODEL,
+        max_tokens: 8192,
+        messages: mistralMessages,
+        tools: makeSchema(),
+        tool_choice: "auto",
+        stream: true
+    });
+    
+    const options = {
+        hostname: 'api.mistral.ai',
+        path: '/v1/chat/completions',
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.MISTRAL_API_KEY}`,
+            'Content-Length': Buffer.byteLength(data)
+        }
+    };
+    
+    const res = await new Promise((resolve, reject) => {
+        const req = https.request(options, resolve);
         req.on('error', reject);
         req.write(data);
         req.end();
     });
+
+    if (res.statusCode !== 200) {
+        let body = '';
+        for await (const chunk of res) body += chunk;
+        throw new Error(`Mistral API Error ${res.statusCode}: ${body}`);
+    }
+
+    const rl = readline.createInterface({ input: res });
+    for await (const line of rl) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed === 'data: [DONE]') continue;
+        if (trimmed.startsWith('data: ')) {
+            try {
+                yield JSON.parse(trimmed.slice(6));
+            } catch (e) {
+                console.error("Failed to parse SSE line:", trimmed);
+            }
+        }
+    }
 }
 
 function separator() {
@@ -378,27 +381,48 @@ async function main() {
         try {
             // Agentic loop: keep calling API until no more tool calls
             while (true) {
-                const response = await callApi(messages, systemPrompt);
-                const choice = response.choices && response.choices[0];
-                if (!choice) break;
-
-                const message = choice.message;
-                messages.push(message);
-
-                if (message.content) {
-                    console.log(`\n${CYAN}⏺${RESET} ${renderMarkdown(message.content)}`);
+                let fullContent = "";
+                let toolCalls = [];
+                
+                process.stdout.write(`\n${CYAN}⏺${RESET} `);
+                
+                for await (const chunk of callApi(messages, systemPrompt)) {
+                    const delta = chunk.choices[0].delta;
+                    
+                    if (delta.content) {
+                        fullContent += delta.content;
+                        process.stdout.write(renderMarkdown(delta.content));
+                    }
+                    
+                    if (delta.tool_calls) {
+                        for (const tc of delta.tool_calls) {
+                            if (!toolCalls[tc.index]) {
+                                toolCalls[tc.index] = {
+                                    id: tc.id,
+                                    function: { name: "", arguments: "" }
+                                };
+                            }
+                            if (tc.function.name) toolCalls[tc.index].function.name += tc.function.name;
+                            if (tc.function.arguments) toolCalls[tc.index].function.arguments += tc.function.arguments;
+                        }
+                    }
                 }
                 
-                if (!message.tool_calls || message.tool_calls.length === 0) {
-                    break;
-                }
+                // Clean up empty slots in toolCalls (Mistral sometimes sends non-sequential indices)
+                toolCalls = toolCalls.filter(Boolean);
                 
-                for (const toolCall of message.tool_calls) {
+                const assistantMessage = { role: "assistant", content: fullContent };
+                if (toolCalls.length > 0) assistantMessage.tool_calls = toolCalls;
+                messages.push(assistantMessage);
+
+                if (toolCalls.length === 0) break;
+                
+                for (const toolCall of toolCalls) {
                     const toolName = toolCall.function.name;
                     const toolArgs = JSON.parse(toolCall.function.arguments);
                     
                     const argPreview = String(Object.values(toolArgs)[0] || "").slice(0, 50);
-                    console.log(`\n${GREEN}⏺ ${toolName.charAt(0).toUpperCase() + toolName.slice(1)}${RESET}(${DIM}${argPreview}${RESET})`);
+                    console.log(`\n\n${GREEN}⏺ ${toolName.charAt(0).toUpperCase() + toolName.slice(1)}${RESET}(${DIM}${argPreview}${RESET})`);
                     
                     const result = runTool(toolName, toolArgs);
                     
