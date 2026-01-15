@@ -330,7 +330,7 @@ async function main() {
             return;
         }
         
-        if (userInput === '/q' || userInput === 'exit') {
+        if (userInput === '/quit' || userInput === 'exit') {
             rl.close();
             return;
         }
