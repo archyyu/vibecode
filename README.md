@@ -10,6 +10,7 @@
   - Replace a specified string in a file.
   - Find files by pattern, sorted by modification time.
   - Search files for a regex pattern.
+  - Ask AI to review your changes.
 
 - **Shell Commands**:
   - Run shell commands.
@@ -37,19 +38,17 @@
 ## Usage
 
 1. **Run the script**:
-   ```sh
    node vibecode.js
-   ```
-
+   
 2. **Interact with the AI**:
    - Type your queries and press Enter.
-   - Use `/c` to clear the conversation history.
-   - Use `/q` or `exit` to quit the application.
+   - Use `/clear` to clear the conversation history.
+   - Use `/quit` or `exit` to quit the application.
 
 ## Commands
 
-- `/c`: Clear the conversation history.
-- `/q` or `exit`: Quit the application.
+- `/clear`: Clear the conversation history.
+- `/quit` or `exit`: Quit the application.
 
 ## Configuration
 

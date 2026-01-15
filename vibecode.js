@@ -94,6 +94,11 @@ function glob(args) {
     return results.map(r => r.path).join('\n') || "none";
 }
 
+function diff(args) {
+    const target = args.path || '';
+    return bash({ cmd: `git diff ${target}` });
+}
+
 function grep(args) {
     const pattern = new RegExp(args.pat);
     const basePath = args.path || '.';
@@ -192,6 +197,11 @@ const TOOLS = {
         description: "Run shell command",
         schema: { cmd: "string" },
         fn: bash
+    },
+    diff: {
+        description: "Show diff of file",
+        schema: { path: "string" },
+        fn: diff
     }
 };
 
@@ -320,12 +330,12 @@ async function main() {
             return;
         }
         
-        if (userInput === '/q' || userInput === 'exit') {
+        if (userInput === '/quit' || userInput === 'exit') {
             rl.close();
             return;
         }
         
-        if (userInput === '/c') {
+        if (userInput === '/clear') {
             messages.length = 0;
             console.log(`${GREEN}⏺ Cleared conversation${RESET}`);
             rl.prompt();
