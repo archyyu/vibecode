@@ -335,7 +335,7 @@ async function main() {
             return;
         }
         
-        if (userInput === '/c') {
+        if (userInput === '/clear') {
             messages.length = 0;
             console.log(`${GREEN}⏺ Cleared conversation${RESET}`);
             rl.prompt();
