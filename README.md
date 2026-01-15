@@ -10,6 +10,7 @@
   - Replace a specified string in a file.
   - Find files by pattern, sorted by modification time.
   - Search files for a regex pattern.
+  - Ask AI to review your changes.
 
 - **Shell Commands**:
   - Run shell commands.
