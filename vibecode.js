@@ -10,7 +10,7 @@ const { execSync } = require('child_process');
 const https = require('https');
 
 const API_URL = "https://api.mistral.ai/v1/chat/completions";
-const MODEL = "devstral-2412";
+const MODEL = "codestral-2412";
 
 // ANSI colors
 const RESET = "\x1b[0m";
@@ -153,8 +153,9 @@ function matchPattern(filepath, pattern) {
     // Simple glob pattern matching
     const regexPattern = pattern
         .replace(/\./g, '\\.')
-        .replace(/\*\*/g, '.*')
+        .replace(/\*\*/g, '__DOUBLE_STAR__')
         .replace(/\*/g, '[^/]*')
+        .replace(/__DOUBLE_STAR__/g, '.*')
         .replace(/\?/g, '.');
     return new RegExp(`^${regexPattern}$`).test(filepath);
 }
@@ -219,12 +220,15 @@ function makeSchema() {
         }
         
         return {
-            name,
-            description: tool.description,
-            input_schema: {
-                type: "object",
-                properties,
-                required
+            type: "function",
+            function: {
+                name,
+                description: tool.description,
+                parameters: {
+                    type: "object",
+                    properties,
+                    required
+                }
             }
         };
     });
@@ -232,7 +236,11 @@ function makeSchema() {
 
 function callApi(messages, systemPrompt) {
     return new Promise((resolve, reject) => {
-        // Convert messages to Mistral format
+        if (!process.env.MISTRAL_API_KEY) {
+            reject(new Error("MISTRAL_API_KEY is not set in environment"));
+            return;
+        }
+
         const mistralMessages = [
             { role: "system", content: systemPrompt },
             ...messages
@@ -242,7 +250,8 @@ function callApi(messages, systemPrompt) {
             model: MODEL,
             max_tokens: 8192,
             messages: mistralMessages,
-            tools: makeSchema()
+            tools: makeSchema(),
+            tool_choice: "auto"
         });
         
         const options = {
@@ -251,7 +260,7 @@ function callApi(messages, systemPrompt) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${process.env.MISTRAL_API_KEY || ''}`,
+                'Authorization': `Bearer ${process.env.MISTRAL_API_KEY}`,
                 'Content-Length': Buffer.byteLength(data)
             }
         };
@@ -261,9 +270,14 @@ function callApi(messages, systemPrompt) {
             res.on('data', chunk => body += chunk);
             res.on('end', () => {
                 try {
-                    resolve(JSON.parse(body));
+                    const parsed = JSON.parse(body);
+                    if (res.statusCode !== 200) {
+                        reject(new Error(`Mistral API Error ${res.statusCode}: ${parsed.message || JSON.stringify(parsed)}`));
+                    } else {
+                        resolve(parsed);
+                    }
                 } catch (e) {
-                    reject(e);
+                    reject(new Error(`Failed to parse response: ${body.slice(0, 100)}...`));
                 }
             });
         });
@@ -324,45 +338,45 @@ async function main() {
             // Agentic loop: keep calling API until no more tool calls
             while (true) {
                 const response = await callApi(messages, systemPrompt);
-                const contentBlocks = response.content || [];
-                const toolResults = [];
-                
-                for (const block of contentBlocks) {
-                    if (block.type === "text") {
-                        console.log(`\n${CYAN}⏺${RESET} ${renderMarkdown(block.text)}`);
-                    }
-                    
-                    if (block.type === "tool_use") {
-                        const toolName = block.name;
-                        const toolArgs = block.input;
-                        const argPreview = String(Object.values(toolArgs)[0]).slice(0, 50);
-                        console.log(`\n${GREEN}⏺ ${toolName.charAt(0).toUpperCase() + toolName.slice(1)}${RESET}(${DIM}${argPreview}${RESET})`);
-                        
-                        const result = runTool(toolName, toolArgs);
-                        const resultLines = result.split('\n');
-                        let preview = resultLines[0].slice(0, 60);
-                        if (resultLines.length > 1) {
-                            preview += ` ... +${resultLines.length - 1} lines`;
-                        } else if (resultLines[0].length > 60) {
-                            preview += '...';
-                        }
-                        console.log(`  ${DIM}⎿  ${preview}${RESET}`);
-                        
-                        toolResults.push({
-                            type: "tool_result",
-                            tool_use_id: block.id,
-                            content: result
-                        });
-                    }
+                const choice = response.choices && response.choices[0];
+                if (!choice) break;
+
+                const message = choice.message;
+                messages.push(message);
+
+                if (message.content) {
+                    console.log(`\n${CYAN}⏺${RESET} ${renderMarkdown(message.content)}`);
                 }
                 
-                messages.push({ role: "assistant", content: contentBlocks });
-                
-                if (toolResults.length === 0) {
+                if (!message.tool_calls || message.tool_calls.length === 0) {
                     break;
                 }
                 
-                messages.push({ role: "user", content: toolResults });
+                for (const toolCall of message.tool_calls) {
+                    const toolName = toolCall.function.name;
+                    const toolArgs = JSON.parse(toolCall.function.arguments);
+                    
+                    const argPreview = String(Object.values(toolArgs)[0] || "").slice(0, 50);
+                    console.log(`\n${GREEN}⏺ ${toolName.charAt(0).toUpperCase() + toolName.slice(1)}${RESET}(${DIM}${argPreview}${RESET})`);
+                    
+                    const result = runTool(toolName, toolArgs);
+                    
+                    const resultLines = String(result).split('\n');
+                    let preview = resultLines[0]?.slice(0, 60) || "";
+                    if (resultLines.length > 1) {
+                        preview += ` ... +${resultLines.length - 1} lines`;
+                    } else if (resultLines[0]?.length > 60) {
+                        preview += '...';
+                    }
+                    console.log(`  ${DIM}⎿  ${preview}${RESET}`);
+                    
+                    messages.push({
+                        role: "tool",
+                        tool_call_id: toolCall.id,
+                        name: toolName,
+                        content: String(result)
+                    });
+                }
             }
             
             console.log();
