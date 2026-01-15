@@ -94,6 +94,32 @@ function glob(args) {
     return results.map(r => r.path).join('\n') || "none";
 }
 
+function undo(args) {
+    const filepath = args.path;
+    
+    try {
+        // Check if file has uncommitted changes
+        const status = execSync(`git status --porcelain ${filepath}`, {
+            encoding: 'utf-8',
+            timeout: 5000
+        }).trim();
+        
+        if (!status) {
+            return `${filepath} has no uncommitted changes`;
+        }
+        
+        // Restore file from git
+        execSync(`git checkout -- ${filepath}`, {
+            encoding: 'utf-8',
+            timeout: 5000
+        });
+        
+        return `restored ${filepath} from git repository`;
+    } catch (error) {
+        return `error: ${error.message}`;
+    }
+}
+
 function diff(args) {
     const target = args.path || '';
     return bash({ cmd: `git diff ${target}` });
@@ -202,6 +228,11 @@ const TOOLS = {
         description: "Show diff of file",
         schema: { path: "string" },
         fn: diff
+    },
+    undo: {
+        description: "Undo changes in file",
+        schema: { path: "string" },
+        fn: undo
     }
 };
 

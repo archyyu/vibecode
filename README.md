@@ -11,6 +11,7 @@
   - Find files by pattern, sorted by modification time.
   - Search files for a regex pattern.
   - Ask AI to review your changes.
+  - Undo changes in file.
 
 - **Shell Commands**:
   - Run shell commands.
